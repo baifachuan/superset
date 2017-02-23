@@ -1083,6 +1083,8 @@ class SqlMetric(Model, AuditMixinNullable, ImportMixin):
     @property
     def sqla_col(self):
         name = self.metric_name
+        if name == "count":
+            name = "total_count"
         return literal_column(self.expression).label(name)
 
     @property

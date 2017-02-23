@@ -131,6 +131,107 @@ class PostgresEngineSpec(BaseEngineSpec):
         return "'{}'".format(dttm.strftime('%Y-%m-%d %H:%M:%S'))
 
 
+class KylinEngineSpec(BaseEngineSpec):
+    engine = 'kylin'
+
+    time_grains = (
+        Grain('Time Column', _('Time Column'), '{col}'),
+        Grain('second', _('second'),
+              "date_trunc('second', CAST({col} AS TIMESTAMP))"),
+        Grain('minute', _('minute'),
+              "date_trunc('minute', CAST({col} AS TIMESTAMP))"),
+        Grain('hour', _('hour'),
+              "date_trunc('hour', CAST({col} AS TIMESTAMP))"),
+        Grain('day', _('day'),
+              "date_trunc('day', CAST({col} AS TIMESTAMP))"),
+        Grain('week', _('week'),
+              "date_trunc('week', CAST({col} AS TIMESTAMP))"),
+        Grain('month', _('month'),
+              "date_trunc('month', CAST({col} AS TIMESTAMP))"),
+        Grain('quarter', _('quarter'),
+              "date_trunc('quarter', CAST({col} AS TIMESTAMP))"),
+        Grain("week_ending_saturday", _('week_ending_saturday'),
+              "date_add('day', 5, date_trunc('week', date_add('day', 1, "
+              "CAST({col} AS TIMESTAMP))))"),
+        Grain("week_start_sunday", _('week_start_sunday'),
+              "date_add('day', -1, date_trunc('week', "
+              "date_add('day', 1, CAST({col} AS TIMESTAMP))))"),
+    )
+
+    @classmethod
+    def sql_preprocessor(cls, sql):
+        print("-----")
+        print(sql)
+        print("000000")
+        return sql.replace('%', '%%')
+
+    @classmethod
+    def convert_dttm(cls, target_type, dttm):
+        return "'{}'".format(dttm.strftime('%Y-%m-%d'))
+
+    @classmethod
+    def epoch_to_dttm(cls):
+        return "from_unixtime({col})"
+
+    @staticmethod
+    def show_partition_pql(
+            table_name, schema_name=None, order_by=None, limit=100):
+        if schema_name:
+            table_name = schema_name + '.' + table_name
+        order_by = order_by or []
+        order_by_clause = ''
+        if order_by:
+            order_by_clause = "ORDER BY " + ', '.join(order_by) + " DESC"
+
+        limit_clause = ''
+        if limit:
+            limit_clause = "LIMIT {}".format(limit)
+
+        return textwrap.dedent("""\
+        SHOW PARTITIONS
+        FROM {table_name}
+        {order_by_clause}
+        {limit_clause}
+        """).format(**locals())
+
+    @classmethod
+    def extra_table_metadata(cls, database, table_name, schema_name):
+        indexes = database.get_indexes(table_name, schema_name)
+        if not indexes:
+            return {}
+        cols = indexes[0].get('column_names', [])
+        pql = cls.show_partition_pql(table_name, schema_name, cols)
+        df = database.get_df(pql, schema_name)
+        latest_part = df.to_dict(orient='records')[0] if not df.empty else None
+
+        partition_query = cls.show_partition_pql(table_name, schema_name, cols)
+        return {
+            'partitions': {
+                'cols': cols,
+                'latest': latest_part,
+                'partitionQuery': partition_query,
+            }
+        }
+
+    @classmethod
+    def handle_cursor(cls, cursor, query, session):
+        """Updates progress information"""
+        polled = cursor.poll()
+        while polled:
+            stats = polled.get('stats', {})
+            if stats:
+                completed_splits = float(stats.get('completedSplits'))
+                total_splits = float(stats.get('totalSplits'))
+                if total_splits and completed_splits:
+                    progress = 100 * (completed_splits / total_splits)
+                    if progress > query.progress:
+                        query.progress = progress
+                    session.commit()
+            time.sleep(1)
+            polled = cursor.poll()
+
+
+
 class SqliteEngineSpec(BaseEngineSpec):
     engine = 'sqlite'
     time_grains = (

@@ -12,11 +12,21 @@ RUN echo 'http://dl-cdn.alpinelinux.org/alpine/edge/testing' >> /etc/apk/reposit
     find / -name "*.pyo" -exec rm -f {} ';' && \
     rm -rf /var/cache/apk/* /tmp/* ~/.[^.]*
 
+
+
+COPY pykylin.zip /tmp
+
+RUN cd /tmp && unzip pykylin.zip -d .
+
+RUN cd /tmp/pykylin && \
+        pip3 install -r ./requirements.txt && \
+        python3 setup.py install
+
 RUN apk add --no-cache libffi-dev openldap-dev \
         postgresql-dev && \
     pip3 install superset psycopg2 && \
     cd /tmp && \
-        git clone git://github.com/airbnb/superset.git && \
+        git clone git://github.com/baifachuan/superset.git && \
     cd superset && \
         sed -i "s/# 'zh'/'zh'/" superset/config.py && \
         sed -i "s/BABEL_DEFAULT_LOCALE = 'en'/BABEL_DEFAULT_LOCALE = 'zh'/" superset/config.py && \

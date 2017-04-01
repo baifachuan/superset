@@ -1,0 +1,8 @@
+version: '2'
+services:
+     superset_tw:
+        build: twsuperset
+        hostname: twsuperset
+        container_name: twsuperset
+        ports:
+            - "8088:8088"
